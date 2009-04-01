@@ -204,7 +204,7 @@ if (!$output)
 			$peer['ip'] = decode_ip($peer['ipv6']);
 			unset($peer['ipv6']);
 			$peerset6[] = $peer;
-		}		
+		}
 	}
 	$leechers = $peers - $seeders;
 	
@@ -233,8 +233,7 @@ if ($compact_mode)
 	}
 	
 	$output['peers'] = $peers;
-	
-	
+		
 	$peers6 = '';
 
 	foreach ($output['peers6'] as $peer)
