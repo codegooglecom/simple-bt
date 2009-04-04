@@ -56,7 +56,7 @@ switch ($cfg['tr_db_type'])
 }
 
 // Functions & classes
-function cleanup()
+function cleanup ()
 {
 	global $cache, $cfg, $tracker_tbl, $db;
 	
@@ -64,15 +64,17 @@ function cleanup()
 	$cache->set('next_cleanup', TIMENOW + $cfg['cleanup_interval']);
 	
 	$peer_expire_time = TIMENOW - floor($cfg['announce_interval'] * $cfg['expire_factor']);
-	$db->query("DELETE FROM $tracker_tbl WHERE update_time < $peer_expire_time");
+	
+	$priority = ($cfg['tr_db_type'] == 'mysql') ? 'LOW_PRIORITY' : ''; 
+	$db->query("DELETE $priority FROM $tracker_tbl WHERE update_time < $peer_expire_time");
 }
 
-function utime()
+function utime ()
 {
 	return array_sum(explode(' ', microtime()));
 }
 
-function drop_fast_announce($lp_info)
+function drop_fast_announce ($lp_info)
 {
 	global $announce_interval;
 	
@@ -89,7 +91,7 @@ function drop_fast_announce($lp_info)
 	dummy_exit($new_ann_intrv);
 }
 
-function msg_die($msg)
+function msg_die ($msg)
 {
 	$output = bencode(array(
 		'min interval'   => (int) 60, 
@@ -99,7 +101,7 @@ function msg_die($msg)
 	die($output);
 }
 
-function dummy_exit($interval = 60)
+function dummy_exit ($interval = 60)
 {
 	$output = bencode(array(
 		'interval'     => (int) $interval, 
@@ -181,7 +183,7 @@ function dbg_log($str, $file)
 	if (!DBG_LOG)
 		return;
 	
-	$dir = LOG_DIR . (defined('IN_PHPBB') ? 'dbg_bb/' : 'dbg_tr/') . date('m-d_H') . '/';
+	$dir = LOG_DIR . date('m-d_H') . '/';
 	return file_write($str, $dir . $file, false, false);
 }
 
