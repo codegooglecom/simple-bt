@@ -47,11 +47,9 @@ foreach ($input_vars_num as $var_name)
 // Verify required request params (info_hash, peer_id, port, uploaded, downloaded, left)
 if (!isset($info_hash) || strlen($info_hash) != 20)
 {
-	// Похоже, к нам зашли через браузер.
-	// Вежливо отправим человека на инструкцию по псевдотрекеру.
-	//echo ;
-	//die;
-	msg_die("Invalid info_hash: '$info_hash' length ".strlen($info_hash)." <meta http-equiv=refresh content=0;url=http://re-tracker.ru/>");
+	// Redirect for browsers
+	msg_die("Invalid info_hash: '". bin2hex($info_hash) ."', length ". strlen($info_hash) ." 
+			<meta http-equiv=refresh content=0;url=http://code.google.com/p/simple-bt/>");
 }
 if (!isset($peer_id) || strlen($peer_id) != 20)
 {
@@ -65,7 +63,7 @@ if (!isset($port) || $port < 0 || $port > 0xFFFF)
 // IP
 $ip = $_SERVER['REMOTE_ADDR'];
 
-if (!$cfg['ignore_reported_ip'] && isset($_GET['ip']) && $ip !== $_GET['ip'])
+if (!$cfg['ignore_reported_ip'] && isset($_GET['ip']) && $ip !== $_GET['ip'] && !strpos($_GET['ip'], ':'))
 {
 	if (!$cfg['verify_reported_ip'])
 	{
@@ -93,8 +91,6 @@ if (!$iptype = verify_ip($ip))
 {
 	msg_die("Invalid IP: $ip");
 }
-// Convert IP to HEX format
-//$ip_sql = encode_ip($ip);
 
 // ----------------------------------------------------------------------------
 // Start announcer
@@ -169,48 +165,79 @@ $output = $cache->get(PEERS_LIST_PREFIX . $info_hash_hex);
 
 if (!$output)
 {
-	$limit = (int) (($numwant > $cfg['peers_limit']) ? $cfg['peers_limit'] : $numwant);
+	// Retrieve peers
+	$limit        = (int) (($numwant > $cfg['peers_limit']) ? $cfg['peers_limit'] : $numwant);
+	$compact_mode = ($cfg['compact_always'] || !empty($compact));
 	
 	$rowset = $db->fetch_rowset("
 		SELECT ip, ipv6, port, seeder
 		FROM $tracker_tbl
 		WHERE info_hash = '$info_hash_sql'
 		ORDER BY ". $db->random_fn ."
-		LIMIT 300
+		LIMIT $limit
 	");
 	
-	$peerset  = array();
-	$peerset6 = array();
-	$seeders  = $leechers = $peers = 0;
-
-	foreach ($rowset as $peer)
+	$seeders = $leechers = 0;
+	$peers   = count($rowset);
+	
+	// Pack peers if compact mode
+	if ($compact_mode)
 	{
-		$peers++;
+		$peerset = $peerset6 = '';
 		
-		if($peer['seeder'])
+		foreach ($rowset as $peer)
 		{
-			$seeders++;
-		}
-		unset($peer['seeder']);
-		
-		if(!empty($peer['ip']) && empty($peer['ipv6']))
-		{
-			$peer['ip'] = decode_ip($peer['ip']);
-			unset($peer['ipv6']);
-			$peerset[] = $peer;
-		}
-		if(!empty($peer['ipv6']))
-		{
-			$peer['ip'] = decode_ip($peer['ipv6']);
-			unset($peer['ipv6']);
-			$peerset6[] = $peer;
+			if ($peer['seeder'])
+			{
+				$seeders++;
+			}
+			unset($peer['seeder']);
+			
+			if(!empty($peer['ip']))
+			{
+				$peerset .= pack('Nn', ip2long(decode_ip($peer['ip'])), $peer['port']);
+			}
+			if(!empty($peer['ipv6']))
+			{
+				$peerset6 .= pack('H32n', $peer['ipv6'], $peer['port']);
+			}
 		}
 	}
+	else
+	{
+		$peerset = $peerset6 = array();
+		
+		foreach ($rowset as $peer)
+		{
+			if ($peer['seeder'])
+			{
+				$seeders++;
+			}
+			unset($peer['seeder']);
+			
+			if(!empty($peer['ip']))
+			{
+				$peerset[] = array(
+					'ip'   => decode_ip($peer['ip']),
+					'port' => intval($peer['port']),
+				);
+			}
+			if(!empty($peer['ipv6']))
+			{
+				$peerset6[] = array(
+					'ip'   => decode_ip($peer['ipv6']),
+					'port' => intval($peer['port']),
+				);
+			}
+		}
+	}
+
 	$leechers = $peers - $seeders;
 	
+	// Generate output
 	$output = array(
-		'interval'     => (int) $announce_interval, // tracker config: announce interval (sec?)
-		'min interval' => (int) 1, // tracker config: min interval (sec?)
+		'interval'     => (int) $announce_interval, // tracker config: announce interval (sec)
+		'min interval' => (int) 1, // tracker config: min interval (sec)
 		'peers'        => $peerset,
 		'peers6'       => $peerset6,
 		'complete'     => (int) $seeders,
@@ -218,30 +245,8 @@ if (!$output)
 	);
 	
 	$peers_list_cached = $cache->set(PEERS_LIST_PREFIX . $info_hash_hex, $output, PEERS_LIST_EXPIRE);
-}
-
-// Generate output
-$compact_mode = ($cfg['compact_always'] || !empty($compact));
-
-if ($compact_mode)
-{
-	$peers = '';
-
-	foreach ($output['peers'] as $peer)
-	{
-		$peers .= pack('Nn', ip2long($peer['ip']), $peer['port']);
-	}
 	
-	$output['peers'] = $peers;
-		
-	$peers6 = '';
-
-	foreach ($output['peers6'] as $peer)
-	{
-		$peers6 .= pack('H32n', encode_ip($peer['ip']), $peer['port']);
-	}
-	
-	$output['peers6'] = $peers6;	
+	if (DBG_LOG && !$peers_list_cached) dbg_log(' ', '$output-caching-FAIL');
 }
 
 // Return data to client
